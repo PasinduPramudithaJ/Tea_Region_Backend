@@ -12,7 +12,7 @@ import numpy as np
 import base64
 
 # ======================================================
-# ============== Flask setup ===========================
+# ============== Flask setup ==========================
 # ======================================================
 app = Flask(__name__)
 CORS(app)
@@ -25,7 +25,7 @@ NUM_CLASSES = len(class_names)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ======================================================
-# ============== ResNet4 Definition ====================
+# ============== ResNet4 Definition ===================
 # ======================================================
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels):
@@ -58,7 +58,7 @@ class ResNet4(nn.Module):
         return self.fc(x)
 
 # ======================================================
-# ============== Load Models ===========================
+# ============== Load Models ==========================
 # ======================================================
 models_dict = {}
 
@@ -76,7 +76,7 @@ resnet4_model.to(device).eval()
 models_dict["tea_4_region_model_restnet4"] = resnet4_model
 
 # ======================================================
-# ============== Image Transform =======================
+# ============== Image Transform ======================
 # ======================================================
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -86,7 +86,7 @@ transform = transforms.Compose([
 ])
 
 # ======================================================
-# ============== Region Info ===========================
+# ============== Region Info ==========================
 # ======================================================
 region_info = {
     "Sabaragamuwa Region": {"description": "Strong aroma, dark color", "origin": "Sabaragamuwa", "flavorNotes": ["Malty","Earthy","Rich"]},
@@ -96,7 +96,7 @@ region_info = {
 }
 
 # ======================================================
-# ============== Image Preprocessing ===================
+# ============== Image Preprocessing ==================
 # ======================================================
 def find_tea_circle(img):
     h, w = img.shape[:2]
@@ -143,27 +143,19 @@ def remove_reflection(img, circle_mask):
     return cv2.inpaint(img, spec, inpaintRadius=3, flags=cv2.INPAINT_TELEA)
 
 def crop_circle_png(img, x, y, r):
-    """Return square crop around circle as RGBA (transparent outside the tea).
-       Fill inner circle using pixel pattern from outer ring for natural gradient.
-    """
     h, w = img.shape[:2]
-
-    # main mask
     mask = np.zeros((h, w), np.uint8)
-    cv2.circle(mask, (x, y), int(0.80 * r), 255, -1)  # Outer Circle
+    cv2.circle(mask, (x, y), int(0.80 * r), 255, -1)
 
     inner_radius = int(r * 0.42)
-
-    # --- extract outer ring pixels ---
     ring_mask = np.zeros((h, w), np.uint8)
     cv2.circle(ring_mask, (x, y), inner_radius + 15, 255, -1)
-    cv2.circle(ring_mask, (x, y), inner_radius, 0, -1)  # only outer ring
+    cv2.circle(ring_mask, (x, y), inner_radius, 0, -1)
     ring_mask = cv2.bitwise_and(ring_mask, mask)
 
     ring_pixels = img[ring_mask == 255]
 
     if len(ring_pixels) > 0:
-        # randomly sample pixels to fill inner circle
         inner_mask = np.zeros((h, w), np.uint8)
         cv2.circle(inner_mask, (x, y), inner_radius, 255, -1)
         indices = np.argwhere(inner_mask == 255)
@@ -171,25 +163,20 @@ def crop_circle_png(img, x, y, r):
             y_idx, x_idx = idx
             img[y_idx, x_idx] = ring_pixels[np.random.randint(len(ring_pixels))]
     else:
-        # fallback mean color
         mean_color = [128, 90, 60]
         cv2.circle(img, (x, y), inner_radius, mean_color, -1)
 
-    # reflection cleanup
     cleaned = remove_reflection(img, mask)
-
-    # RGBA output
     b, g, rch = cv2.split(cleaned)
     alpha = mask
     rgba = cv2.merge([b, g, rch, alpha])
 
-    # crop
     x1, x2 = max(0, x - r), min(w, x + r)
     y1, y2 = max(0, y - r), min(h, y + r)
     return rgba[y1:y2, x1:x2]
 
 # ======================================================
-# ============== Prediction Function ===================
+# ============== Prediction Function ==================
 # ======================================================
 def predict_image(pil_img, model):
     img_t = transform(pil_img).unsqueeze(0).to(device)
@@ -200,7 +187,7 @@ def predict_image(pil_img, model):
     return class_names[idx], {cls: float(probs[i]) for i, cls in enumerate(class_names)}
 
 # ======================================================
-# ============== Flask Endpoint ========================
+# ============== Flask Endpoint =======================
 # ======================================================
 @app.route("/predict", methods=["POST"])
 def predict_api():
@@ -223,7 +210,6 @@ def predict_api():
         if img_bgr is None:
             return jsonify({"error": "Invalid image"}), 400
 
-        # --- Apply circle detection + reflection only if image_type == "raw"
         if image_type.lower() == "raw":
             circle = find_tea_circle(img_bgr)
             if circle is None:
@@ -232,11 +218,9 @@ def predict_api():
             cropped = crop_circle_png(img_bgr, x, y, r)
             img_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGRA2RGB)
             _, buffer = cv2.imencode(".png", cropped)
-       
-
         elif image_type.lower() == "preprocessed":
             img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-            _, buffer = cv2.imencode(".png", img_rgb)
+            _, buffer = cv2.imencode(".png", img_bgr)
         else:
             return jsonify({"error": "Invalid image type"}), 400
 
@@ -245,7 +229,6 @@ def predict_api():
         confidence = prob_dict[pred_class]
         info = region_info.get(pred_class, {})
 
-        # Encode image to base64 for preview
         img_b64 = base64.b64encode(buffer).decode("utf-8")
 
         return jsonify({
@@ -259,12 +242,13 @@ def predict_api():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
 
 # ======================================================
-# ============== Server Setup ==========================
+# ============== Server Setup =========================
 # ======================================================
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
