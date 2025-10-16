@@ -32,6 +32,11 @@ region_info = {
         "description": "Smooth taste, golden color.",
         "origin": "Southern lowlands",
         "flavorNotes": ["Sweet", "Mellow", "Smooth"]
+    },
+    "Nuwara Eliya Region": {
+        "description": "Light, crisp flavor with floral notes.",
+        "origin": "Nuwara Eliya district",
+        "flavorNotes": ["Floral", "Citrus", "Bright"]
     }
 }
 

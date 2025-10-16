@@ -42,7 +42,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # --- Load model ---
 model = models.resnet18(weights=None)
 model.fc = torch.nn.Linear(model.fc.in_features, len(class_names))
-model.load_state_dict(torch.load("models/tea_4_region_model_.pth", map_location=device))
+model.load_state_dict(torch.load("models/tea_4_region_model_restnet18.pth", map_location=device))
 model = model.to(device).eval()
 
 # --- Transform for model input ---

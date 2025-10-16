@@ -3,28 +3,24 @@ import socket
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import transforms
+from torchvision import transforms, models
 from PIL import Image
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import cv2
-import numpy as np
 import base64
 
-# --- Flask setup ---
 app = Flask(__name__)
 CORS(app)
 
-# --- Load class names ---
+# Load class names
 with open("classes.txt", "r") as f:
     class_names = [line.strip() for line in f.readlines()]
 
 NUM_CLASSES = len(class_names)
-
-# --- Device ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# --- ResNet-4 definition ---
+# --- ResNet4 definition ---
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
@@ -56,12 +52,21 @@ class ResNet4(nn.Module):
         x = self.fc(x)
         return x
 
-# --- Load trained model ---
-MODEL_PATH = "models/tea_4_region_model_restnet4.pth"
-model = ResNet4(NUM_CLASSES)
-model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-model = model.to(device)
-model.eval()
+# --- Load models ---
+models_dict = {}
+
+# 1️⃣ ResNet18
+resnet18_model = models.resnet18(weights=None)
+resnet18_model.fc = nn.Linear(resnet18_model.fc.in_features, NUM_CLASSES)
+resnet18_model.load_state_dict(torch.load("models/tea_4_region_model_restnet18.pth", map_location=device))
+resnet18_model.to(device).eval()
+models_dict["tea_4_region_model_restnet18"] = resnet18_model
+
+# 2️⃣ ResNet4
+resnet4_model = ResNet4(NUM_CLASSES)
+resnet4_model.load_state_dict(torch.load("models/tea_4_region_model_restnet4.pth", map_location=device))
+resnet4_model.to(device).eval()
+models_dict["tea_4_region_model_restnet4"] = resnet4_model
 
 # --- Transform ---
 transform = transforms.Compose([
@@ -71,38 +76,51 @@ transform = transforms.Compose([
                          [0.229, 0.224, 0.225])
 ])
 
-# --- Prediction function ---
-def predict(img):
-    img_t = transform(img).unsqueeze(0).to(device)
+# --- Region info (optional) ---
+region_info = {
+    "Sabaragamuwa Region": {"description": "Strong aroma, dark color", "origin": "Sabaragamuwa", "flavorNotes": ["Malty","Earthy","Rich"]},
+    "Dimbula Region": {"description": "Balanced flavor, bright color", "origin": "Central Highlands", "flavorNotes": ["Floral","Light","Aromatic"]},
+    "Ruhuna Region": {"description": "Smooth taste, golden color", "origin": "Southern lowlands", "flavorNotes": ["Sweet","Mellow","Smooth"]},
+    "Nuwara Eliya Region": {"description": "Light, crisp flavor with floral notes", "origin": "Nuwara Eliya", "flavorNotes": ["Floral","Citrus","Bright"]}
+}
+
+# --- Prediction helper ---
+def predict_image(pil_img, model):
+    img_t = transform(pil_img).unsqueeze(0).to(device)
     with torch.no_grad():
         outputs = model(img_t)
-        probs = F.softmax(outputs, dim=1).cpu().numpy()[0]
-        pred_idx = probs.argmax()
-        pred_class = class_names[pred_idx]
-    prob_dict = {cls: float(probs[i]) for i, cls in enumerate(class_names)}
-    confidence = prob_dict[pred_class]
-    return pred_class, confidence, prob_dict
+        probs = F.softmax(outputs, dim=1)[0].cpu().numpy()
+    idx = probs.argmax()
+    return class_names[idx], {cls: float(probs[i]) for i, cls in enumerate(class_names)}
 
 # --- API endpoint ---
 @app.route("/predict", methods=["POST"])
 def predict_api():
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
+    file = request.files.get("file")
+    model_name = request.args.get("model", "tea_4_region_model_restnet18")
+    model = models_dict.get(model_name)
 
-    file = request.files["file"]
-    file_path = os.path.join("uploads", file.filename)
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+    if not model:
+        return jsonify({"error": f"Model '{model_name}' not found"}), 400
+
     os.makedirs("uploads", exist_ok=True)
+    file_path = os.path.join("uploads", file.filename)
     file.save(file_path)
 
     try:
+        # Load image
         img_bgr = cv2.imread(file_path)
         if img_bgr is None:
             return jsonify({"error": "Invalid image"}), 400
-
         pil_img = Image.fromarray(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
-        pred_class, confidence, prob_dict = predict(pil_img)
 
-        # Encode original image as base64
+        pred_class, prob_dict = predict_image(pil_img, model)
+        confidence = prob_dict[pred_class]
+        info = region_info.get(pred_class, {})
+
+        # Encode image
         _, buffer = cv2.imencode(".png", img_bgr)
         img_b64 = base64.b64encode(buffer).decode("utf-8")
 
@@ -110,6 +128,7 @@ def predict_api():
             "prediction": pred_class,
             "confidence": confidence,
             "probabilities": prob_dict,
+            "info": info,
             "image": f"data:image/png;base64,{img_b64}"
         })
     finally:
@@ -131,7 +150,5 @@ def get_local_ip():
 # --- Run server ---
 if __name__ == "__main__":
     local_ip = get_local_ip()
-    print(f"Server running on:")
-    print(f"  Localhost: http://127.0.0.1:5000")
-    print(f"  Network:   http://{local_ip}:5000")
+    print(f"Server running on:\n  Localhost: http://127.0.0.1:5000\n  Network: http://{local_ip}:5000")
     app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
