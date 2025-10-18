@@ -189,6 +189,43 @@ def predict_image(pil_img, model):
 # ======================================================
 # ============== Flask Endpoint =======================
 # ======================================================
+@app.route("/crop_reflection", methods=["POST"])
+def crop_reflection():
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    os.makedirs("uploads", exist_ok=True)
+    file_path = os.path.join("uploads", file.filename)
+    file.save(file_path)
+
+    try:
+        img_bgr = cv2.imread(file_path)
+        if img_bgr is None:
+            return jsonify({"error": "Invalid image"}), 400
+
+        # Find circle
+        circle = find_tea_circle(img_bgr)
+        if circle is None:
+            return jsonify({"error": "No tea circle detected"}), 400
+        x, y, r = circle
+
+        # Crop and remove reflection
+        cropped_rgba = crop_circle_png(img_bgr, x, y, r)
+
+        # Encode as PNG to base64
+        _, buffer = cv2.imencode(".png", cropped_rgba)
+        cropped_base64 = base64.b64encode(buffer).decode("utf-8")
+
+        return jsonify({"cropped_image": f"data:image/png;base64,{cropped_base64}"})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+##########################################################################################
 @app.route("/predict", methods=["POST"])
 def predict_api():
     file = request.files.get("file")
@@ -242,6 +279,7 @@ def predict_api():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+        
 
     finally:
         if os.path.exists(file_path):
