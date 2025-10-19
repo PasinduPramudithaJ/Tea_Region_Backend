@@ -1,8 +1,8 @@
-Flask
-Flask-Cors
-torch
-torchvision
-opencv-python-headless
-Pillow
-numpy
-gunicorn
+Flask==2.3.5
+Flask-Cors==3.1.3
+torch==2.1.1
+torchvision==0.16.1
+opencv-python-headless==4.8.1.78
+Pillow==10.0.0
+numpy==1.26.0
+gunicorn==21.2.0
