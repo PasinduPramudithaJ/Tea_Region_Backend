@@ -6,3 +6,8 @@ numpy
 pillow
 opencv-python
 gunicorn
+pandas
+joblib
+matplotlib
+seaborn
+scikit-learn
